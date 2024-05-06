@@ -21,10 +21,9 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::task::JoinSet;
 use wg::WgDevice;
 
-// #[async_std::main]
 #[tokio::main]
 async fn main() {
-    println!("wg-turn v1.0.0");
+    println!("wg-turn v1.1");
     let mut tasks = JoinSet::new();
 
     let mut route = wireguard_uapi::linux::RouteSocket::connect().unwrap();

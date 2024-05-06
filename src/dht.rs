@@ -24,7 +24,7 @@ use tokio::{sync::mpsc, sync::RwLock};
 
 pub struct DHT {
     dht4: Arc<MainlineDht>,
-    dht6: Arc<MainlineDht>, //todo: test IPv6
+    dht6: Arc<MainlineDht>,
     pub_key: Option<PublicKey>,
     tasks: RwLock<Vec<Abort<()>>>,
 }
@@ -81,16 +81,8 @@ impl DHT {
         }
     }
 
-    pub async fn register(
-        &mut self,
-        pub_key: &PublicKey,
-        psk: &PublicKey,
-    ) -> mpsc::Receiver<SocketAddr> {
-        let key_array: [u8; 64] = utils::calc_id(
-            &pub_key.array(),
-            &self.pub_key.clone().unwrap().array(),
-            &psk.array(),
-        );
+    pub async fn register(&mut self, pub_key: &PublicKey) -> mpsc::Receiver<SocketAddr> {
+        let key_array = utils::calc_id(&pub_key.array(), &self.pub_key.clone().unwrap().array());
         let id = InfoHash::sha1(&key_array);
 
         let (snd1, rcv) = mpsc::channel(1);

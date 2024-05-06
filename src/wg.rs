@@ -1071,10 +1071,6 @@ impl WgPeer {
         return PublicKey::new(self.wg_peer.public_key);
     }
 
-    pub fn preshared_key(&self) -> PublicKey {
-        return PublicKey::new(self.wg_peer.preshared_key);
-    }
-
     pub async fn clean(&mut self) {
         // println!("WgPeer::clean() for {} with {:?}",self.public_key(), self.inet_endpoint);
         let mut w_test = self.tests.write().await;

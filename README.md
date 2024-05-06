@@ -1,6 +1,6 @@
 # wg-turn
 
-wg-turn is just a [turn](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT) daemon for wireguard.If you need more functionality, you can look at [cunīcu](https://cunicu.li/), [netbird](https://netbird.io/), [TailScale](https://tailscale.com/) or other 
+wg-turn is just a [turn](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT) daemon for wireguard. If you need more functionality, you can look at [cunīcu](https://cunicu.li/), [netbird](https://netbird.io/), [TailScale](https://tailscale.com/) or other 
 
 wg-turn use the mainline DHT to discover the peers endpoint
 

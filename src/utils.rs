@@ -15,7 +15,6 @@ use anyhow::anyhow;
 use anyhow::Result;
 use base64::prelude::*;
 use blake3::Hash;
-use concat_arrays::concat_arrays;
 use crypto_box::aead::{Aead, AeadCore, OsRng};
 use crypto_box::{ChaChaBox, Nonce, SecretKey};
 use rand::prelude::*;
@@ -285,21 +284,12 @@ impl fmt::Display for PublicKey {
     }
 }
 
-pub fn calc_id(pub_key1: &[u8; 32], pub_key2: &[u8; 32], psk: &[u8; 32]) -> [u8; 64] {
-    // let psk_sha: [u8; 20] = Sha1::digest(psk).into();
-    // let mut add_array = [0u8; 32];
-    // for ((add_val, l_val), r_val) in add_array.iter_mut().zip(pub_key1).zip(pub_key2) {
-    //     *add_val = u8::wrapping_add(*l_val, *r_val);
-    // }
-    // concat_arrays!(add_array, psk_sha)
-
-    let psk_hash = *blake3::hash(psk).as_bytes();
+pub fn calc_id(pub_key1: &[u8; 32], pub_key2: &[u8; 32]) -> [u8; 32] {
     let pub_key1_hash = *blake3::hash(pub_key1).as_bytes();
     let pub_key2_hash = *blake3::hash(pub_key2).as_bytes();
     let mut add_array = [0u8; 32];
     for ((add_val, l_val), r_val) in add_array.iter_mut().zip(pub_key1_hash).zip(pub_key2_hash) {
         *add_val = u8::wrapping_add(l_val, r_val);
     }
-
-    concat_arrays!(add_array, psk_hash)
+    add_array
 }

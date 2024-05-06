@@ -29,9 +29,7 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: Arc<RwLock<dht::DHT>>) -> Resu
     let mut rx_dht: mpsc::Receiver<SocketAddr>;
 
     let mut w_dht = dht.write().await;
-    rx_dht = w_dht
-        .register(&peer.public_key(), &peer.preshared_key())
-        .await;
+    rx_dht = w_dht.register(&peer.public_key()).await;
     drop(w_dht);
 
     let rx_wg = peer.check_input();
