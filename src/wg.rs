@@ -941,7 +941,18 @@ impl WgPeer {
                 self.check_data = self.wg_peer.rx_bytes;
                 self.check_time = now;
                 Ok(false)
-            } else if last.elapsed().unwrap() > Duration::from_secs(3 * 60) {
+            } else if let Err(_e) = last.elapsed() {
+                self.check_data = self.wg_peer.rx_bytes;
+                self.check_time = now;
+                #[cfg(debug_assertions)]
+                    println!(
+                        "WgPeer::is_connected() for {} with {}  = false (-{:?})",
+                        self.public_key(),
+                        _endpoint,
+                        _e.duration()
+                    );
+                Ok(false)
+            } else if last.elapsed().is_ok() && last.elapsed().unwrap() > Duration::from_secs(3 * 60) {
                 self.check_data = self.wg_peer.rx_bytes;
                 self.check_time = now;
                 #[cfg(debug_assertions)]
