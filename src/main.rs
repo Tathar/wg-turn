@@ -23,7 +23,7 @@ use wg::WgDevice;
 
 #[tokio::main]
 async fn main() {
-    println!("wg-turn v1.1");
+    println!("wg-turn v{}",env!("CARGO_PKG_VERSION"));
     let mut tasks = JoinSet::new();
 
     let mut route = wireguard_uapi::linux::RouteSocket::connect().unwrap();
