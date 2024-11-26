@@ -728,6 +728,9 @@ impl WgPeer {
                                                     };
                                                 }else {
                                                     println!("receve Syn replay for {} from {}",public_key, endpoint);
+                                                    let mut w_tests = test.write().await;
+                                                    let _task = w_tests.remove(&endpoint);
+                                                    return Err(anyhow!("receve Syn replay for {} from {}",public_key, endpoint));
                                                 }
                                             } else if handshake.msg_type == MsgType::SynAck {
                                                 if msg == question {
@@ -781,9 +784,14 @@ impl WgPeer {
                                                         }
                                                     } else {
                                                         println!("receve Syn/Act replay for {} from {}",public_key, endpoint);
+                                                        let mut w_tests = test.write().await;
+                                                        let _task = w_tests.remove(&endpoint);
+                                                        return Err(anyhow!("receve Syn/Act replay for {} from {}",public_key, endpoint));
                                                     }
                                                 }else {
                                                     println!("Receve Invalid SynAck in new_check for {} to {}",public_key, endpoint);
+                                                    let mut w_tests = test.write().await;
+                                                    let _task = w_tests.remove(&endpoint);
                                                     return Err(anyhow!("Receve Invalid SynAck in new_check for {} to {}",public_key, endpoint));
                                                 }
                                             } else if handshake.msg_type == MsgType::Ack {
@@ -804,10 +812,14 @@ impl WgPeer {
                                                     }
                                                 }else {
                                                     println!("Receve Invalid Ack in new_check for {} to {}",public_key, endpoint);
+                                                    let mut w_tests = test.write().await;
+                                                    let _task = w_tests.remove(&endpoint);
                                                     return Err(anyhow!("Receve Invalid Ack in new_check for {} to {}",public_key, endpoint));
                                                 }
                                             }else {
                                                 println!("Receve Invalid message type in new_check for {} to {}",public_key, endpoint);
+                                                let mut w_tests = test.write().await;
+                                                let _task = w_tests.remove(&endpoint);
                                                 return Err(anyhow!("Receve Invalid message type in new_check for {} to {}",public_key, endpoint));
                                             }
 
