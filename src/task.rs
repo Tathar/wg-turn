@@ -21,16 +21,16 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::select;
 use tokio::task::JoinSet;
 use tokio::time;
-use tokio::{sync::mpsc, sync::RwLock};
+use tokio::sync::mpsc;
 
-pub async fn peer_task(mut peer: wg::WgPeer, dht: Arc<RwLock<dht::DHT>>) -> Result<WgPeer> {
+pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
     peer.gateway(None).await;
 
     let mut rx_dht: mpsc::Receiver<SocketAddr>;
 
-    let mut w_dht = dht.write().await;
-    rx_dht = w_dht.register(&peer.public_key()).await;
-    drop(w_dht);
+    // let mut w_dht = dht.write().await;
+    rx_dht = dht.register(&peer.public_key()).await;
+    // drop(w_dht);
 
     let rx_wg = peer.check_input();
     let mut w_rx_wg = rx_wg.write().await;
@@ -115,9 +115,7 @@ pub async fn interface_task(iface_name: String) -> Result<()> {
         }
 
         device.gateway().await;
-        let dht = Arc::new(RwLock::new(
-            dht::DHT::new(device.org_listen_port(), device.public_key().await).await,
-        ));
+        let dht = dht::DHT::new(device.org_listen_port(), device.public_key().await).await;
 
         let mut peer_tasks = JoinSet::new();
         let mut peers = device.get_all_peers().await;
