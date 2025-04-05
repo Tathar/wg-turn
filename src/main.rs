@@ -29,17 +29,17 @@ async fn main() {
     let mut route = wireguard_uapi::linux::RouteSocket::connect().unwrap();
     if let Ok(devices) = route.list_device_names() {
         for device in devices {
-            if device.contains("wg-turn") {
+            if device.to_ascii_lowercase().contains("wg-turn") {
                 tasks.spawn(task::interface_task(device.clone()));
             }
-            if device.contains("wg_turn") {
+            if device.to_ascii_lowercase().contains("wg_turn") {
                 tasks.spawn(task::interface_task(device.clone()));
             }
         }
     }
 
     if tasks.len() == 0 {
-        println!("interface not fond");
+        println!("interface not found");
         return;
     }
 
