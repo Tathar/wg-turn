@@ -73,13 +73,13 @@ impl DhtHandler {
 
         tasks.push(Abort::spawn(async move {
             println!("bootstrap ipv4");
-            dht4s.bootstrapped(None).await;
+            dht4s.bootstrapped().await;
             println!("bootstraped ipv4");
         }));
 
         tasks.push(Abort::spawn(async move {
             println!("bootstrap ipv6");
-            dht6s.bootstrapped(None).await;
+            dht6s.bootstrapped().await;
             println!("bootstraped ipv6");
         }));
 
@@ -138,7 +138,7 @@ impl DhtHandler {
             let mut peers = HashSet::new();
             loop {
                 // let start = Instant::now();
-                if dht4.bootstrapped(None).await == false {
+                if dht4.bootstrapped().await == false {
                     continue;
                 };
                 // println!("search ipv4");
@@ -165,7 +165,7 @@ impl DhtHandler {
             loop {
                 let mut peers = HashSet::new();
                 // let start = Instant::now();
-                if dht6.bootstrapped(None).await == false {
+                if dht6.bootstrapped().await == false {
                     continue;
                 };
                 // println!("search ipv6");

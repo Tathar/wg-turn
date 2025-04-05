@@ -131,7 +131,7 @@ impl WgDevice {
 
                 tmp_listen_port = Some(port.clone());
             } else {
-                panic!("cannot create socket for wirguarde")
+                panic!("cannot create socket for wireguard")
             }
         }
         *w_tmp_listen_port = tmp_listen_port;

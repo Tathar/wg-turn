@@ -1,16 +1,15 @@
 [package]
 name = "wg-turn"
-version = "1.1.2"
+version = "1.1.3"
 edition = "2021"
 
 [dependencies]
 futures = "0.3.8"
 anyhow = "1.0"
-stun-client = "0.1.4"
+# stun-client = "0.1.4"
 wireguard-uapi = "3.0.0"
-datetime = "0.5.2"
+# datetime = "0.5.2"
 socket2 = "0.5.5"
-# btdht = { git = "https://github.com/equalitie/btdht.git", rev = "5287b4a2bc507cde87903bc30ca2f1c548a31e18" }
 btdht = { git = "https://github.com/equalitie/btdht.git"}
 tokio = { version = "1.32", default_features = false, features = [
     "macros",
@@ -22,11 +21,10 @@ tokio = { version = "1.32", default_features = false, features = [
     "signal",
 ] }
 rand = { version = "0.8.5", features = ["small_rng"] }
-concat-arrays = "0.1.2"
-async-trait   = "0.1.73"
+# concat-arrays = "0.1.2"
+# async-trait   = "0.1.73"
 base64 = "0.22.0"
-# serde = "1.0.197"
-serde = "1.0.180"
+serde = "1.0"
 serde_bencode = "0.2.4"
 crypto_box = { version = "0.9.1" , features = ["chacha20"] }
 generic-array =  { version = "0.14.7", features = ["serde"] }
