@@ -19,9 +19,9 @@ use anyhow::anyhow;
 use anyhow::Result;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::select;
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio::time;
-use tokio::sync::mpsc;
 
 pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
     peer.gateway(None).await;
@@ -32,8 +32,8 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
     rx_dht = dht.register(&peer.public_key()).await;
     // drop(w_dht);
 
-    let rx_wg = peer.check_input();
-    let mut w_rx_wg = rx_wg.write().await;
+    let mut rx_wg = peer.get_check_input_recever();
+    // let mut w_rx_wg = rx_wg.write().await;
 
     let _ = peer.ping().await;
 
@@ -48,7 +48,7 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
                 let _reuslt = peer.new_check(endpoint).await.unwrap();
                 // time::sleep(Duration::from_secs(10)).await;
                 },
-            Some(endpoint) = w_rx_wg.recv() => {
+            Some(endpoint) = rx_wg.recv() => {
                 // println!("2 set {}", endpoint);
                 peer.gateway(Some(endpoint)).await;
                 // tokio::time::sleep(Duration::from_secs(30)).await;
@@ -56,11 +56,19 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
                     Ok(ret) => if ret {
                         // let ret = peer.public_key().clone();
                         // peer.clean().await;
+
+                        //push recever to peer
+                        peer.set_check_input_recever(rx_wg);
+
                         return Ok(peer);
                     }
                     Err(err) => {
                         println!("peer_task error: {}: return",err);
                         // peer.clean().await;
+
+                        //push recever to peer
+                        peer.set_check_input_recever(rx_wg);
+
                         return Err(anyhow!("peer_task error is_connected(): {}",err))
                     }
                 }
@@ -72,11 +80,19 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
                     match peer.is_connected().await {
                         Ok(ret) => if ret {
                             // peer.clean().await;
+
+                            //push recever to peer
+                            peer.set_check_input_recever(rx_wg);
+
                             return Ok(peer);
                         },
                         Err(err) => {
                             println!("peer_task error: {}: return",err);
                             // peer.clean().await;
+
+                            //push recever to peer
+                            peer.set_check_input_recever(rx_wg);
+
                             return Err(anyhow!("peer_task() error: {}" ,err));
                             },
                     }
@@ -85,6 +101,11 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
             },
             else => {
                 // peer.clean().await;
+
+
+                //push recever to peer
+                peer.set_check_input_recever(rx_wg);
+
                 return Err(anyhow!("peer_task oups"))
             },
         };

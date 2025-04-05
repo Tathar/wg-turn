@@ -409,7 +409,8 @@ pub struct WgPeer {
     check_time: std::time::Instant,
     gateway: Option<Abort<()>>,
     wg_peer: wireguard_uapi::get::Peer,
-    rx: Arc<RwLock<mpsc::Receiver<SocketAddr>>>,
+    // rx: Arc<RwLock<mpsc::Receiver<SocketAddr>>>,
+    rx: Option<mpsc::Receiver<SocketAddr>>,
     tx: mpsc::Sender<SocketAddr>,
     tests: Arc<RwLock<HashMap<SocketAddr, Abort<Result<()>>>>>,
 }
@@ -450,7 +451,8 @@ impl WgPeer {
             check_data,
             check_time: std::time::Instant::now(),
             gateway,
-            rx: Arc::new(RwLock::new(rx)),
+            // rx: Arc::new(RwLock::new(rx)),
+            rx: Some(rx),
             tx,
             tests: Arc::new(RwLock::new(HashMap::new())),
         };
@@ -866,8 +868,17 @@ impl WgPeer {
     }
 
     //Get cheked endpoint recever
-    pub fn check_input(&self) -> Arc<RwLock<mpsc::Receiver<SocketAddr>>> {
-        self.rx.clone()
+    // pub fn check_input(&self) -> Arc<RwLock<mpsc::Receiver<SocketAddr>>> {
+    //     self.rx.clone()
+    // }
+
+    //Get cheked endpoint recever
+    pub fn get_check_input_recever(&mut self) -> mpsc::Receiver<SocketAddr> {
+        self.rx.take().unwrap()
+    }
+    //Set cheked endpoint recever
+    pub fn set_check_input_recever(&mut self, recever : mpsc::Receiver<SocketAddr>){
+        self.rx = Some(recever);
     }
 
     //update peer_info
