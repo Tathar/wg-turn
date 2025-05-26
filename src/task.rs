@@ -45,7 +45,7 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
         tokio::select! {
             Some(endpoint) = rx_dht.recv() => {
                 // println!("2 receve {}", endpoint);
-                let _reuslt = peer.new_check(endpoint).await.unwrap();
+                let _reuslt = peer.new_check(endpoint).await?;
                 // time::sleep(Duration::from_secs(10)).await;
                 },
             Some(endpoint) = rx_wg.recv() => {
@@ -157,8 +157,6 @@ pub async fn interface_task(iface_name: String) -> Result<()> {
                                 match result {
                                     Ok(mut wg_peer) => {
                                         println!("peer {} is connected",wg_peer.public_key());
-                                        // let peer = device.get_peer(&public_key).await.unwrap();
-                                        // let mut wg_peer = WgPeer::new(device.clone(), peer).await;
                                         check_task.spawn(async move {
                                             loop {
                                                 match wg_peer.check_connection().await {
@@ -188,8 +186,6 @@ pub async fn interface_task(iface_name: String) -> Result<()> {
                     if let Some(result) = result{
                         match result {
                             Ok(wg_peer) => {
-                                // let peer = device.get_peer(&public_key).await.unwrap();
-                                // let wg_peer = wg::WgPeer::new(device.clone(), peer).await;
                                 peer_tasks.spawn(peer_task(wg_peer, dht.clone()));
                             }
                             Err(err) => return Err(anyhow!("interface_task error {}", err)),

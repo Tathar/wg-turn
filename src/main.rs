@@ -23,37 +23,73 @@ use wg::WgDevice;
 
 #[tokio::main]
 async fn main() {
-    println!("wg-turn v{}",env!("CARGO_PKG_VERSION"));
-    let mut tasks = JoinSet::new();
+    println!("wg-turn v{}", env!("CARGO_PKG_VERSION"));
+    let mut tasks = loop {
+        let mut tasks = loop {
+            let mut tasks = JoinSet::new();
 
-    let mut route = wireguard_uapi::linux::RouteSocket::connect().unwrap();
-    if let Ok(devices) = route.list_device_names() {
-        for device in devices {
-            if device.to_ascii_lowercase().contains("wg-turn") {
-                tasks.spawn(task::interface_task(device.clone()));
+            let mut route = match wireguard_uapi::linux::RouteSocket::connect() {
+                Ok(ret) => ret,
+                Err(err) => {
+                    println!("{}", err);
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    continue;
+                }
+            };
+
+            if let Ok(devices) = route.list_device_names() {
+                for device in devices {
+                    if device.to_ascii_lowercase().contains("wg-turn") {
+                        tasks.spawn(task::interface_task(device.clone()));
+                    } else if device.to_ascii_lowercase().contains("wg_turn") {
+                        tasks.spawn(task::interface_task(device.clone()));
+                    }
+                }
             }
-            if device.to_ascii_lowercase().contains("wg_turn") {
-                tasks.spawn(task::interface_task(device.clone()));
+
+            if tasks.len() != 0 {
+                break tasks;
+            } else {
+                println!("interface not found");
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
             }
+        };
+
+        let mut sig_int = signal(SignalKind::interrupt()).unwrap();
+        let mut sig_hangup = signal(SignalKind::hangup()).unwrap();
+        let mut sig_quit = signal(SignalKind::quit()).unwrap();
+        let mut sig_term = signal(SignalKind::terminate()).unwrap();
+
+        tokio::select! {
+            _ = sig_int.recv() => {
+                    println!("ctrl-c pressed");
+                    break tasks;
+                },
+            _ = sig_hangup.recv() => {
+                    println!("HANGUP receve");
+                    break tasks;
+                },
+            _ = sig_quit.recv() => {
+                    println!("QUIT receve");
+                    break tasks;
+                },
+            _ = sig_term.recv() => {
+                    println!("TERM receve");
+                    break tasks;
+                },
+            _ = tasks.join_next() => {
+                    tasks.abort_all();
+                    while let Some(_) = tasks.join_next().await {
+                        tokio::time::sleep(Duration::ZERO).await;
+                    }
+                    while !WgDevice::all_close() {
+                        tokio::time::sleep(Duration::ZERO).await;
+                    }
+                    continue
+                },
         }
-    }
-
-    if tasks.len() == 0 {
-        println!("interface not found");
-        return;
-    }
-
-    let mut sig_int = signal(SignalKind::interrupt()).unwrap();
-    let mut sig_hangup = signal(SignalKind::hangup()).unwrap();
-    let mut sig_quit = signal(SignalKind::quit()).unwrap();
-    let mut sig_term = signal(SignalKind::terminate()).unwrap();
-
-    tokio::select! {
-        _ = sig_int.recv() => println!("ctrl-c pressed"),
-        _ = sig_hangup.recv() =>println!("HANGUP receve"),
-        _ = sig_quit.recv() =>println!("QUIT receve"),
-        _ = sig_term.recv() =>println!("TERM receve"),
-    }
+    };
 
     tasks.abort_all();
     while let Some(_) = tasks.join_next().await {
