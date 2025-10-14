@@ -24,7 +24,7 @@ use tokio::task::JoinSet;
 use tokio::time;
 
 pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
-    peer.gateway(None).await;
+    let _ = peer.gateway(None).await;
 
     let mut rx_dht: mpsc::Receiver<SocketAddr>;
 
@@ -32,7 +32,7 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
     rx_dht = dht.register(&peer.public_key()).await;
     // drop(w_dht);
 
-    let mut rx_wg = peer.get_check_input_recever();
+    let mut rx_wg = peer.get_check_input_recever()?;
     // let mut w_rx_wg = rx_wg.write().await;
 
     let _ = peer.ping().await;
@@ -45,12 +45,15 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
         tokio::select! {
             Some(endpoint) = rx_dht.recv() => {
                 // println!("2 receve {}", endpoint);
-                let _reuslt = peer.new_check(endpoint).await?;
+                peer.new_check(endpoint).await?;
                 // time::sleep(Duration::from_secs(10)).await;
                 },
             Some(endpoint) = rx_wg.recv() => {
                 // println!("2 set {}", endpoint);
-                peer.gateway(Some(endpoint)).await;
+                if let Err(err) = peer.gateway(Some(endpoint)).await {
+                    println!("error in WgPeer::gateway({}) for {} :{} ",endpoint,peer.public_key(),err);
+                    continue;
+                };
                 // tokio::time::sleep(Duration::from_secs(30)).await;
                 match peer.check_connection().await {
                     Ok(ret) => if ret {
@@ -114,19 +117,18 @@ pub async fn peer_task(mut peer: wg::WgPeer, dht: dht::DHT) -> Result<WgPeer> {
 
 pub async fn interface_task(iface_name: String) -> Result<()> {
     loop {
-        let device: Arc<wg::WgDevice>;
-        match wg::WgDevice::new(&iface_name) {
-            Ok(wg_device) => device = Arc::new(wg_device),
+        let device: Arc<wg::WgDevice> = match wg::WgDevice::new(&iface_name) {
+            Ok(wg_device) => Arc::new(wg_device),
             Err(err) => {
                 println!("Error {}: wait 3Os end retry", err);
                 time::sleep(Duration::from_secs(30)).await;
                 // wg_peers.clear();
                 continue;
             }
-        }
+        };
 
         if let Ok(result) = device.check_all_peers(device.clone()).await {
-            if result == true {
+            if result {
                 continue;
             }
         } else {
@@ -135,8 +137,8 @@ pub async fn interface_task(iface_name: String) -> Result<()> {
             continue;
         }
 
-        device.gateway().await;
-        let dht = dht::DHT::new(device.org_listen_port(), device.public_key().await).await;
+        device.gateway().await?;
+        let dht = dht::DHT::new(device.org_listen_port(), device.public_key().await?).await?;
 
         let mut peer_tasks = JoinSet::new();
         let mut peers = device.get_all_peers().await;
@@ -182,7 +184,7 @@ pub async fn interface_task(iface_name: String) -> Result<()> {
                         break
                     }
                 }
-                result = check_task.join_next(),if check_task.len() > 0 => {
+                result = check_task.join_next(),if !check_task.is_empty() => {
                     if let Some(result) = result{
                         match result {
                             Ok(wg_peer) => {
@@ -196,7 +198,7 @@ pub async fn interface_task(iface_name: String) -> Result<()> {
         }
 
         check_task.abort_all();
-        while let Some(_) = check_task.join_next().await {}
+        while check_task.join_next().await.is_some() {}
         drop(dht);
     }
 }

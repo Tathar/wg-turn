@@ -35,20 +35,12 @@ use tokio::task::JoinError;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub fn new_reuse_udp_socket(address: IpAddr, port: u16) -> Result<UdpSocket> {
-    let socket: socket2::Socket;
-
-    match address {
-        IpAddr::V4(_) => {
-            socket =
-                socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap()
-        }
-        IpAddr::V6(_) => {
-            socket =
-                socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None).unwrap()
-        }
-    }
+    let socket = match address {
+        IpAddr::V4(_) => socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?,
+        IpAddr::V6(_) => socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None)?,
+    };
     let _ = socket.set_reuse_address(true);
-    socket.set_nonblocking(true).unwrap();
+    socket.set_nonblocking(true)?;
     let socket_address: SocketAddr = SocketAddr::new(address, port);
     let socket_address = socket_address.into();
     socket.bind(&socket_address)?;
@@ -150,7 +142,7 @@ impl Handcheck {
     }
 
     pub fn decrypt(&self, public_key: &PublicKey, private_key: &SecretKey) -> Result<Msg> {
-        match Msg::decrypt(public_key, private_key, &self) {
+        match Msg::decrypt(public_key, private_key, self) {
             Ok(msg) => Ok(msg),
             Err(err) => Err(err),
         }
@@ -271,10 +263,6 @@ where
 impl PartialEq<[u8; 32]> for PublicKey {
     fn eq(&self, other: &[u8; 32]) -> bool {
         self.0.to_bytes() == *other
-    }
-
-    fn ne(&self, other: &[u8; 32]) -> bool {
-        self.0.to_bytes() != *other
     }
 }
 

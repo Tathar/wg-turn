@@ -39,15 +39,13 @@ async fn main() {
 
             if let Ok(devices) = route.list_device_names() {
                 for device in devices {
-                    if device.to_ascii_lowercase().contains("wg-turn") {
-                        tasks.spawn(task::interface_task(device.clone()));
-                    } else if device.to_ascii_lowercase().contains("wg_turn") {
+                    if device.to_ascii_lowercase().contains("wg-turn") || device.to_ascii_lowercase().contains("wg_turn") {
                         tasks.spawn(task::interface_task(device.clone()));
                     }
                 }
             }
 
-            if tasks.len() != 0 {
+            if !tasks.is_empty() {
                 break tasks;
             } else {
                 println!("interface not found");
@@ -80,7 +78,7 @@ async fn main() {
                 },
             _ = tasks.join_next() => {
                     tasks.abort_all();
-                    while let Some(_) = tasks.join_next().await {
+                    while tasks.join_next().await.is_some() {
                         tokio::time::sleep(Duration::ZERO).await;
                     }
                     while !WgDevice::all_close() {
@@ -92,7 +90,7 @@ async fn main() {
     };
 
     tasks.abort_all();
-    while let Some(_) = tasks.join_next().await {
+    while tasks.join_next().await.is_some() {
         tokio::time::sleep(Duration::ZERO).await;
     }
 

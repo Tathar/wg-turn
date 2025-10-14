@@ -20,6 +20,7 @@ use crate::dht::dht_handler::DhtCommand;
 use std::net::SocketAddr;
 use tokio::{sync::mpsc,task};
 use tokio::sync;
+use anyhow::Result;
 
 #[derive(Clone)]
 pub struct DHT {
@@ -34,17 +35,17 @@ pub struct DHT {
 // }
 
 impl DHT {
-    pub async fn new(port: u16, pub_key: PublicKey) -> DHT {
+    pub async fn new(port: u16, pub_key: PublicKey) -> Result<DHT> {
         
         let (send, rcv) = mpsc::unbounded_channel();
 
-        let handler = dht_handler::DhtHandler::new(port, pub_key, rcv).await;
+        let handler = dht_handler::DhtHandler::new(port, pub_key, rcv).await?;
 
         task::spawn(handler.run());
 
-        DHT {
+        Ok(DHT {
             send
-        }
+        })
     }
 
     pub async fn register(&self, pub_key: &PublicKey) -> mpsc::Receiver<SocketAddr> {

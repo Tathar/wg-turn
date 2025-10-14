@@ -43,7 +43,7 @@ use base64::prelude::*;
 
 const SHORT_SLEEP: std::time::Duration = std::time::Duration::from_secs(10);
 pub const SLEEP: std::time::Duration = std::time::Duration::from_secs(25);
-const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 struct WgIface {
     socket: WgSocket,
@@ -62,7 +62,7 @@ impl WgIface {
         self.device = self
             .socket
             .get_device(DeviceInterface::from_name(&self.device.ifname[..]))?;
-        return Ok(());
+        Ok(())
     }
 
     pub fn set_device(&mut self, device: Device) -> Result<(), SetDeviceError> {
@@ -77,11 +77,13 @@ impl Deref for WgIface {
     }
 }
 
+type SocketFuncTuple = (SocketAddr, Option<Abort<()>>);
+
 pub struct WgDevice {
     device: Arc<RwLock<WgIface>>,
     org_listen_port: u16,
     tmp_listen_port: RwLock<Option<u16>>,
-    configs: RwLock<HashMap<PublicKey, (SocketAddr, Option<Abort<()>>)>>,
+    configs: RwLock<HashMap<PublicKey, SocketFuncTuple>>,
 }
 
 static WG_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -106,20 +108,16 @@ impl WgDevice {
     }
 
     pub fn all_close() -> bool {
-        if WG_COUNTER.load(Ordering::Relaxed) == 0 {
-            true
-        } else {
-            false
-        }
+        WG_COUNTER.load(Ordering::Relaxed) == 0
     }
 
-    pub async fn gateway(&self) {
+    pub async fn gateway(&self) -> Result<u16> {
         //        println!("tmp_listen_port lock");
         let mut w_tmp_listen_port = self.tmp_listen_port.write().await;
-        let mut tmp_listen_port = w_tmp_listen_port.take();
 
-        if tmp_listen_port == None {
-            //            println!("WgIface lock");
+        if let Some(port) = *w_tmp_listen_port {
+            Ok(port)
+        }else {
             let mut w_device = self.device.write().await;
             let ifname = w_device.device.ifname.clone();
             if let Some(port) = self.set_wg_port(&mut w_device.socket, &ifname) {
@@ -128,13 +126,14 @@ impl WgDevice {
                     println!("WgDevice::gateway() listen_port = {}", self.org_listen_port);
                     println!("tmp_listen_port = {}", port);
                 }
+                *w_tmp_listen_port = Some(port);
+                Ok(port)
 
-                tmp_listen_port = Some(port.clone());
             } else {
-                panic!("cannot create socket for wireguard")
+                Err(anyhow!("WgDevice:gateway() error"))
             }
         }
-        *w_tmp_listen_port = tmp_listen_port;
+
     }
 
     pub async fn update(&self) -> Result<(), err::GetDeviceError> {
@@ -159,7 +158,8 @@ impl WgDevice {
         let mut n_device = Device::from_ifname(&name);
         n_device.peers.push(peer);
 
-        if let Err(_) = w_device.set_device(n_device) {
+        if let Err(err) = w_device.set_device(n_device) {
+            println!("WgDevice::set_peer() : {}",err);
             false
         } else {
             true
@@ -182,7 +182,8 @@ impl WgDevice {
         let mut n_device = Device::from_ifname(&name);
         n_device.peers.push(peer);
 
-        if let Err(_) = w_device.set_device(n_device) {
+        if let Err(err) = w_device.set_device(n_device) {
+            println!("WgDevice::set_peer_with_lock() : {}",err);
             false
         } else {
             true
@@ -193,24 +194,22 @@ impl WgDevice {
         self.org_listen_port
     }
 
-    pub async fn tmp_listen_port(&self) -> u16 {
-        self.gateway().await;
-        let r_tmp_listen_port = self.tmp_listen_port.read().await;
-        *r_tmp_listen_port.as_ref().unwrap()
+    pub async fn tmp_listen_port(&self) -> Result<u16> {
+        self.gateway().await
     }
 
-    pub async fn tmp_v4_socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(
+    pub async fn tmp_v4_socket_addr(&self) -> Result<SocketAddr> {
+        Ok(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            self.tmp_listen_port().await,
-        )
+            self.tmp_listen_port().await?,
+        ))
     }
 
-    pub async fn tmp_v6_socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(
+    pub async fn tmp_v6_socket_addr(&self) -> Result<SocketAddr> {
+        Ok(SocketAddr::new(
             IpAddr::V6(Ipv6Addr::LOCALHOST),
-            self.tmp_listen_port().await,
-        )
+            self.tmp_listen_port().await?,
+        ))
     }
 
     pub fn local_v4_socket(&self) -> Result<UdpSocket> {
@@ -229,16 +228,25 @@ impl WgDevice {
         utils::new_reuse_udp_socket(IpAddr::V6(Ipv6Addr::UNSPECIFIED), self.org_listen_port)
     }
 
-    pub async fn public_key(&self) -> PublicKey {
+    pub async fn public_key(&self) -> Result<PublicKey> {
         //        println!("WgDevice::public_key() Wgiface Rlock");
         let r_device = self.device.read().await;
-        PublicKey::new(r_device.public_key.unwrap())
+        if let Some(pub_key) = r_device.public_key {
+            Ok(PublicKey::new(pub_key))
+        } else {
+            Err(anyhow!("WgDevice::public_key() : Public Key not found"))
+        }
+        
     }
 
-    pub async fn private_key(&self) -> SecretKey {
+    pub async fn private_key(&self) -> Result<SecretKey> {
         //        println!("WgDevice::public_key() Wgiface Rlock");
         let r_device = self.device.read().await;
-        SecretKey::from_bytes(r_device.private_key.unwrap())
+        if let Some(priv_key) = r_device.private_key {
+            Ok(SecretKey::from_bytes(priv_key))
+        } else {
+            Err(anyhow!("WgDevice::private_key() : Private Key not found"))
+        }
     }
 
     pub async fn get_peer(&self, public_key: &PublicKey) -> Result<wireguard_uapi::get::Peer> {
@@ -253,13 +261,13 @@ impl WgDevice {
                 return Ok(peer.clone());
             }
         }
-        return Err(anyhow!("WgDevice::get_peer() peer not found"));
+        Err(anyhow!("WgDevice::get_peer() peer not found"))
     }
 
     pub async fn get_all_peers(&self) -> Vec<wireguard_uapi::get::Peer> {
         // println!("WgDevice::get_all_peers() Wgiface Rlock");
         let r_device = self.device.read().await;
-        return r_device.peers.clone();
+        r_device.peers.clone()
     }
 
     pub async fn check_all_peers(&self, device: Arc<WgDevice>) -> Result<bool> {
@@ -288,7 +296,7 @@ impl WgDevice {
                         }
                     }
                     Err(err) => {
-                        println!("WgDevice::check_all_peers() Error {}", err);
+                        println!("Error {}", err);
                         return Err(anyhow!("WgDevice::check_all_peers(): Error {}", err));
                     }
                 },
@@ -325,22 +333,17 @@ impl WgDevice {
     fn set_wg_port(&self, wgsocket: &mut WgSocket, name: &str) -> Option<u16> {
         let mut port: u16 = random();
 
-        while port < 1024 && port >= 65535 && port == self.org_listen_port {
+        while port <= 1024 || port == self.org_listen_port {
             port = random();
-        }
+        };
 
         let mut wg_device_set = Device::from_ifname(name);
         wg_device_set = wg_device_set.listen_port(port);
-        let result = wgsocket.set_device(wg_device_set);
-        match result {
-            Err(_) => {
-                if port < 65535 {
-                    self.set_wg_port(wgsocket, name)
-                } else {
-                    None
-                }
-            }
-            Ok(_) => Some(port),
+
+        if wgsocket.set_device(wg_device_set).is_err() {
+            self.set_wg_port(wgsocket, name)
+        } else {
+            Some(port)
         }
     }
 
@@ -349,7 +352,7 @@ impl WgDevice {
 
         let mut w_device = self.device.write().await;
         let mut w_tmp_listen_port = self.tmp_listen_port.write().await;
-        if let Some(_) = w_tmp_listen_port.take() {
+        if w_tmp_listen_port.take().is_some() {
             let mut w_configs = self.configs.write().await;
 
             for (public_key, (endpoint, task)) in w_configs.drain() {
@@ -444,7 +447,7 @@ impl WgPeer {
 
         let check_data = wg_peer.rx_bytes;
 
-        let ret = WgPeer {
+        WgPeer {
             iface,
             wg_peer,
             inet_endpoint,
@@ -455,18 +458,17 @@ impl WgPeer {
             rx: Some(rx),
             tx,
             tests: Arc::new(RwLock::new(HashMap::new())),
-        };
+        }
 
-        ret
     }
 
     // attache new localhost socket to public reuse_socket
-    pub async fn gateway(&mut self, endpoint: Option<SocketAddr>) -> bool {
+    pub async fn gateway(&mut self, endpoint: Option<SocketAddr>) -> Result<()> {
         #[cfg(debug_assertions)]
         if let Some(endpoint) = endpoint {
-            println!("WgPeer::gateway() with {}", endpoint);
+            println!("WgPeer::gateway() for {} with {}", self.public_key() ,endpoint);
         } else {
-            println!("WgPeer::gateway() with None");
+            println!("WgPeer::gateway() or {} with None", self.public_key());
         }
 
         let inet_endpoint: SocketAddr;
@@ -480,43 +482,43 @@ impl WgPeer {
             inet_endpoint = l_endpoint;
             self.inet_endpoint = Some(l_endpoint);
         } else {
-            return false;
+             #[cfg(debug_assertions)]
+              println!("WgPeer::gateway() endpoint not found");
+            return Ok(());
         }
+
+        println!("WgPeer::gateway() for {} with {}", self.public_key() ,inet_endpoint);
 
         self.gateway = None;
         let local_socket: UdpSocket;
         let inet_socket: UdpSocket;
 
-        self.iface.gateway().await;
+        self.iface.gateway().await?;
 
         if let V6(_) = inet_endpoint {
-            local_socket = self.iface.local_v6_socket().unwrap();
+            local_socket = self.iface.local_v6_socket()?;
             local_socket
-                .connect(self.iface.tmp_v6_socket_addr().await)
-                .await
-                .unwrap();
-            inet_socket = self.iface.inet_v6_socket().unwrap();
+                .connect(self.iface.tmp_v6_socket_addr().await?)
+                .await?;
+            inet_socket = self.iface.inet_v6_socket()?;
         } else {
-            local_socket = self.iface.local_v4_socket().unwrap();
+            local_socket = self.iface.local_v4_socket()?;
             local_socket
-                .connect(self.iface.tmp_v4_socket_addr().await)
-                .await
-                .unwrap();
-            inet_socket = self.iface.inet_v4_socket().unwrap();
+                .connect(self.iface.tmp_v4_socket_addr().await?)
+                .await?;
+            inet_socket = self.iface.inet_v4_socket()?;
         }
 
         let local_endpoint: SocketAddr;
         match local_socket.local_addr() {
             Ok(endpoint) => local_endpoint = endpoint,
             Err(err) => {
-                println!("WgPeer::gateway() for {} error: {}", self.public_key(), err);
-                return false;
+                return Err(anyhow!("WgPeer::gateway() for {} call local_socket.local_addr() error: {}", self.public_key(), err));
             }
         }
 
         if let Err(err) = inet_socket.connect(inet_endpoint).await {
-            println!("WgPeer::gateway() for {} error: {}", self.public_key(), err);
-            return false;
+            return Err(anyhow!("WgPeer::gateway() for {} inet_socket.connect({}) error: {}", self.public_key(), inet_endpoint, err));
         }
 
         let public_key = self.public_key().clone();
@@ -529,7 +531,7 @@ impl WgPeer {
                     result = inet_socket.recv(&mut inet_buf) => {
                         if let Ok(n1)  = result {
                             if let Err(err) = local_socket.send(&inet_buf[0..n1]).await {
-                                println!("WgPeer::Gateway for {} to {} error: {}",public_key,local_endpoint,err);
+                                println!("WgPeer::Gateway (loop) for {} to {} error: {}",public_key,local_endpoint,err);
                                 break;
                             }
                         }
@@ -537,7 +539,7 @@ impl WgPeer {
                     result = local_socket.recv(&mut local_buf) => {
                         if let Ok(n1)  = result {
                             if let Err(err) = inet_socket.send(&local_buf[0..n1]).await {
-                                println!("WgPeer::Gateway for {} to {} error: {}",public_key,inet_endpoint,err);
+                                println!("WgPeer::Gateway (loop) for {} to {} error: {}",public_key,inet_endpoint,err);
                                 break;
                             }
                         }
@@ -546,13 +548,14 @@ impl WgPeer {
             }
         }));
 
-        let ret = self
+
+        self
             .iface
             .set_peer(&PublicKey::new(self.wg_peer.public_key), &local_endpoint)
             .await;
 
-        // println!("end WgPeer::gateway");
-        ret
+        Ok(())
+
     }
 
     pub fn relese_gateway(&mut self) {
@@ -577,7 +580,7 @@ impl WgPeer {
         let question: [u8; 32] = random();
 
         let public_key = self.public_key();
-        let private_key = self.iface.private_key().await;
+        let private_key = self.iface.private_key().await?;
 
         let msg = Msg::new(Some(question), None);
         let snd_question = serde_bencode::to_bytes(&Handcheck::new(
@@ -586,6 +589,8 @@ impl WgPeer {
             &public_key,
             &private_key,
         )?)?;
+
+        println!("Syn message len == {}", snd_question.len());
 
         //send task
         let r_test = self.tests.read().await;
@@ -601,11 +606,12 @@ impl WgPeer {
                 if self.is_connected().await? {
                     println!("new_check return for {}", endpoint);
                     return Ok(());
-                } else {
-                    println!("new_check relese_gateway for {}", endpoint);
-                    self.relese_gateway();
-                    time::sleep(Duration::ZERO).await;
-                }
+                } 
+                // else {
+                //     println!("new_check relese_gateway for {}", endpoint);
+                //     self.relese_gateway();
+                //     time::sleep(Duration::ZERO).await;
+                // }
             }
         }
 
@@ -618,14 +624,12 @@ impl WgPeer {
                 #[cfg(debug_assertions)]
                 println!("new IPV6 socket");
                 inet_socket =
-                    utils::new_reuse_udp_socket(IpAddr::V6(Ipv6Addr::UNSPECIFIED), org_listen_port)
-                        .unwrap();
+                    utils::new_reuse_udp_socket(IpAddr::V6(Ipv6Addr::UNSPECIFIED), org_listen_port)?;
             } else if let V4(_) = endpoint {
                 #[cfg(debug_assertions)]
                 println!("new IPV4 socket");
                 inet_socket =
-                    utils::new_reuse_udp_socket(IpAddr::V4(Ipv4Addr::UNSPECIFIED), org_listen_port)
-                        .unwrap();
+                    utils::new_reuse_udp_socket(IpAddr::V4(Ipv4Addr::UNSPECIFIED), org_listen_port)?;
             } else {
                 return Err(anyhow!("WgPeer::new_check() addres is no V4 or V6"));
             }
@@ -648,10 +652,15 @@ impl WgPeer {
 
 
                     #[cfg(debug_assertions)]
-                    match inet_socket.local_addr().unwrap() {
-                        V6(data) => println!("socket {} is IPV6", data),
-                        V4(data) =>  println!("socket {} is IPV4", data),
+                    if let Ok(local_addr) = inet_socket.local_addr() {
+                        match local_addr { //can not panic
+                            V6(data) => println!("socket {} is IPV6", data),
+                            V4(data) =>  println!("socket {} is IPV4", data),
+                        }
+                    } else {
+                        println!("can not get local_socket")
                     }
+                    
 
                     #[cfg(debug_assertions)]
                     match endpoint {
@@ -665,26 +674,26 @@ impl WgPeer {
                     tokio::pin!(interval);
                     let mut buf = vec![0u8; 2048];
                     let mut count_syn_replay = 0u8;
-                    let mut count_syn_act_replay = 0u8;
+                    let mut count_syn_ack_replay = 0u8;
                     loop {
                         select! {
                             Ok(n) = inet_socket.recv(&mut buf) => {
                                 // println!("data receve from {} with len {}", endpoint, n);
 
                                 if n == snd_question.len() && buf[..snd_question.len()] == snd_question {
-                                    println!("Receve Self Syn message");
+                                    #[cfg(debug_assertions)]
+                                        println!("Receve Self Syn message");
                                     return Ok(());
                                 } else {
-                                    let handshake : Handcheck;
-                                    match  serde_bencode::from_bytes(&buf) {
-                                        Ok(ok) => handshake = ok,
+                                    let handshake : Handcheck = match  serde_bencode::from_bytes(&buf) {
+                                        Ok(ok) => ok,
                                         Err(err) => {
                                             println!("serde error in new_check for {} to {} with {}",public_key, endpoint,err);
                                             let mut w_tests = test.write().await;
                                             let _task = w_tests.remove(&endpoint);
                                             return Err(anyhow!("serde error in new_check for {} to {} with {}",public_key, endpoint,err));
                                         }
-                                    }
+                                    };
 
                                     match handshake.decrypt(&public_key,&private_key) {
                                         Ok(msg) => {
@@ -728,6 +737,7 @@ impl WgPeer {
                                                             return Err(anyhow!("send Syn/Ack error in new_check for {} to {} with {}",public_key, endpoint,err));
                                                         },
                                                     };
+
                                                 }else {
                                                     println!("receve Syn replay for {} from {}",public_key, endpoint);
                                                     let mut w_tests = test.write().await;
@@ -736,9 +746,9 @@ impl WgPeer {
                                                 }
                                             } else if handshake.msg_type == MsgType::SynAck {
                                                 if msg == question {
-                                                    println!("Receve SynAck for {} from {}",public_key,endpoint);
-                                                    if count_syn_act_replay < 5 {
-                                                        count_syn_act_replay += 5;
+                                                    println!("Receve Syn/Ack for {} from {}",public_key,endpoint);
+                                                    if count_syn_ack_replay < 5 {
+                                                        count_syn_ack_replay += 5;
                                                         let res = Msg::new(None,Some(msg.question));
                                                         match Handcheck::new(MsgType::Ack, res, &public_key, &private_key) {
                                                             Ok(ok) => {
@@ -758,6 +768,7 @@ impl WgPeer {
                                                                                         println!("send error in new_check for {} to {} with {}",public_key, endpoint,err);
                                                                                         let mut w_tests = test.write().await;
                                                                                         let _task = w_tests.remove(&endpoint);
+                                                                                        w_tests.clear(); //stop all check task
                                                                                         return Err(anyhow!(err));
                                                                                     }
                                                                                 }
@@ -785,10 +796,10 @@ impl WgPeer {
                                                             },
                                                         }
                                                     } else {
-                                                        println!("receve Syn/Act replay for {} from {}",public_key, endpoint);
+                                                        println!("receve Syn/Ack replay for {} from {}",public_key, endpoint);
                                                         let mut w_tests = test.write().await;
                                                         let _task = w_tests.remove(&endpoint);
-                                                        return Err(anyhow!("receve Syn/Act replay for {} from {}",public_key, endpoint));
+                                                        return Err(anyhow!("receve Syn/Ack replay for {} from {}",public_key, endpoint));
                                                     }
                                                 }else {
                                                     println!("Receve Invalid SynAck in new_check for {} to {}",public_key, endpoint);
@@ -803,6 +814,7 @@ impl WgPeer {
                                                         Ok(_) => {
                                                             let mut w_tests = test.write().await;
                                                             let _task = w_tests.remove(&endpoint);
+                                                            w_tests.clear(); //stop all check task
                                                             return Ok(());
                                                         }
                                                         Err(err) => {
@@ -841,7 +853,8 @@ impl WgPeer {
                                     let result = inet_socket.send(&snd_question).await;
                                     match result {
                                         Ok(_) => {
-                                            // println!("send check for {} to {}",public_key, endpoint);
+                                            // #[cfg(debug_assertions)]
+                                            println!("send Syn for {} to {}",public_key, endpoint);
                                         },
                                         Err(err) => {
                                             println!("send error in new_check for {} to {} with {}",public_key, endpoint,err);
@@ -853,7 +866,7 @@ impl WgPeer {
 
 
                                     if start.elapsed() > TIMEOUT {
-                                            println!("check timeout for {}", endpoint);
+                                            println!("check timeout for {} to {}", public_key, endpoint);
                                             let mut w_tests = test.write().await;
                                             let _task = w_tests.remove(&endpoint);
                                             return Err(anyhow!("WgPeer::new_check() Timeout"));
@@ -873,8 +886,13 @@ impl WgPeer {
     // }
 
     //Get cheked endpoint recever
-    pub fn get_check_input_recever(&mut self) -> mpsc::Receiver<SocketAddr> {
-        self.rx.take().unwrap()
+    pub fn get_check_input_recever(&mut self) -> Result<mpsc::Receiver<SocketAddr>> {
+        if let Some(result) =  self.rx.take() {
+            Ok(result)
+        } else {
+            Err(anyhow!("WgPeer::get_check_input_recever(): self.rx == None"))
+        }
+       
     }
     //Set cheked endpoint recever
     pub fn set_check_input_recever(&mut self, recever : mpsc::Receiver<SocketAddr>){
@@ -895,7 +913,7 @@ impl WgPeer {
                 //     "WgPeer::update last handshake = {:?}",
                 //     self.wg_peer.last_handshake_time
                 // );
-                return Ok(());
+                Ok(())
             }
             Err(e) => {
                 // println!("WgPeer::update() error {}", e);
@@ -975,28 +993,41 @@ impl WgPeer {
                         _e.duration()
                     );
                 Ok(false)
-            } else if last.elapsed().is_ok() && last.elapsed().unwrap() > Duration::from_secs(3 * 60) {
-                self.check_data = self.wg_peer.rx_bytes;
-                self.check_time = now;
-                #[cfg(debug_assertions)]
-                println!(
-                    "WgPeer::is_connected() for {} with {}  = false ({:?})",
-                    self.public_key(),
-                    _endpoint,
-                    last.elapsed().unwrap()
-                );
-                Ok(false)
             } else {
-                #[cfg(debug_assertions)]
-                println!(
-                    "WgPeer::is_connected() for {} with {}  = true ({:?})",
-                    self.public_key(),
-                    _endpoint,
-                    last.elapsed().unwrap()
-                );
-                self.check_data = self.wg_peer.rx_bytes;
-                self.check_time = now;
-                Ok(true)
+                if let Ok(elapsed) = last.elapsed() {
+                    if elapsed > Duration::from_secs(3 * 60) {
+                        self.check_data = self.wg_peer.rx_bytes;
+                        self.check_time = now;
+                        #[cfg(debug_assertions)]
+                            println!(
+                            "WgPeer::is_connected() for {} with {}  = false ({:?})",
+                            self.public_key(),
+                            _endpoint,
+                            elapsed
+                        );
+                        
+                        Ok(false)
+                    }else {
+                        #[cfg(debug_assertions)]
+                        println!(
+                        "WgPeer::is_connected() for {} with {}  = true ({:?})",
+                        self.public_key(),
+                        _endpoint,
+                        elapsed
+                    );
+                    
+                    self.check_data = self.wg_peer.rx_bytes;
+                    self.check_time = now;
+                    Ok(true)
+                    }
+                    
+                } else {
+                    self.check_data = self.wg_peer.rx_bytes;
+                    self.check_time = now;
+                    Ok(true)
+                }
+
+               
             }
         }
     }
@@ -1026,7 +1057,7 @@ impl WgPeer {
             }
         }
         
-        if o_endpoint == None {
+        if o_endpoint.is_none() {
             for peer in self.wg_peer.allowed_ips.iter() { //if only netwok is specified
                 if peer.ipaddr.is_ipv4() && peer.cidr_mask < 32 && !peer.ipaddr.is_unspecified() {
                     if let IpAddr::V4(address) = peer.ipaddr {
@@ -1054,7 +1085,7 @@ impl WgPeer {
             }
         }
 
-        if o_endpoint == None {
+        if o_endpoint.is_none() {
             for peer in self.wg_peer.allowed_ips.iter() { //if only unspecified address is specified
                 if peer.ipaddr.is_ipv4() && peer.cidr_mask < 32 && peer.ipaddr.is_unspecified() {
                     o_endpoint = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1,1,1,1)), 0));
@@ -1070,12 +1101,10 @@ impl WgPeer {
             let wg_socket: UdpSocket;
             if let V6(_) = endpoint {
                 wg_socket = UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0))
-                    .await
-                    .unwrap();
+                    .await?;
             } else {
                 wg_socket = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
-                    .await
-                    .unwrap();
+                    .await?;
             }
 
             match wg_socket.connect(endpoint).await {
@@ -1092,17 +1121,19 @@ impl WgPeer {
                 }
                 Err(err) => {
                     println!("WgPeer::ping() socket.connect() err {}", err);
-                    Err(anyhow!("WgPeer::ping() socket.connect() err {}", err))
+                    // Err(anyhow!("WgPeer::ping() socket.connect() err {}", err))
+                    Ok(())
                 }
             }
         } else {
             println!("WgPeer::ping() endpoint not found");
-            Err(anyhow!("WgPeer::ping() endpoint not found"))
+            // Err(anyhow!("WgPeer::ping() endpoint not found"))
+            Ok(())
         }
     }
 
     pub fn public_key(&self) -> PublicKey {
-        return PublicKey::new(self.wg_peer.public_key);
+        PublicKey::new(self.wg_peer.public_key)
     }
 
     pub async fn clean(&mut self) {
@@ -1135,9 +1166,6 @@ impl PartialEq for WgPeer {
         self.wg_peer.public_key == other.wg_peer.public_key
     }
 
-    fn ne(&self, other: &Self) -> bool {
-        self.wg_peer.public_key != other.wg_peer.public_key
-    }
 }
 
 impl Drop for WgPeer {

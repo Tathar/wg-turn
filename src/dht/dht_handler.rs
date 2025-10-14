@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License along with wg-
 use crate::utils;
 use crate::utils::Abort;
 use crate::utils::PublicKey;
+use anyhow::Result;
 use btdht::{router, InfoHash, MainlineDht, NodeId};
 use futures::stream::StreamExt;
 use rand;
@@ -42,20 +43,19 @@ pub struct DhtHandler {
 }
 
 impl DhtHandler {
-    pub async fn new(port: u16, pub_key: PublicKey, rcv: mpsc::UnboundedReceiver<DhtCommand>) -> DhtHandler {
+    pub async fn new(port: u16, pub_key: PublicKey, rcv: mpsc::UnboundedReceiver<DhtCommand>) -> Result<DhtHandler> {
         let id = NodeId::from(rand::random::<[u8; 20]>());
 
-        let socket4 = utils::new_reuse_udp_socket(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port).unwrap();
+        let socket4 = utils::new_reuse_udp_socket(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port)?;
 
         let dht4 = 
             MainlineDht::builder()
                 .add_routers([router::BITTORRENT_DHT, router::TRANSMISSION_DHT])
                 .set_read_only(true)
-                .set_node_id(id.clone())
-                .start(socket4)
-                .unwrap();
+                .set_node_id(id)
+                .start(socket4)?;
 
-        let socket6 = utils::new_reuse_udp_socket(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port).unwrap();
+        let socket6 = utils::new_reuse_udp_socket(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port)?;
 
         let dht6 = 
             MainlineDht::builder()
@@ -63,8 +63,7 @@ impl DhtHandler {
                 .set_read_only(true)
                 .set_node_id(id)
                 .set_announce_port(port)
-                .start(socket6)
-                .unwrap();
+                .start(socket6)?;
 
         let dht4s = dht4.clone();
         let dht6s = dht6.clone();
@@ -85,14 +84,14 @@ impl DhtHandler {
 
         // let (snd, rcv) = mpsc::unbounded_channel();
 
-        DhtHandler {
+        Ok(DhtHandler {
             rcv,
             running: true,
             dht4,
             dht6,
             pub_key: Some(pub_key),
             tasks,
-        }
+        })
     }
 
     pub async fn run(mut self) {
@@ -125,7 +124,7 @@ impl DhtHandler {
         self.running = false;
     }
 
-    pub async fn register(&mut self, pub_key: PublicKey, ret : sync::oneshot::Sender<mpsc::Receiver<SocketAddr>>)  {
+    pub async fn register(&mut self, pub_key: PublicKey, ret : sync::oneshot::Sender<mpsc::Receiver<SocketAddr>>) {
         let key_array = utils::calc_id(&pub_key.array(), &self.pub_key.clone().unwrap().array());
         let id = InfoHash::sha1(&key_array);
 
@@ -133,12 +132,13 @@ impl DhtHandler {
         let snd2 = snd1.clone();
 
         let dht4 = self.dht4.clone();
+        
         // let mut tasks = self.tasks.write().await;
         self.tasks.push(Abort::spawn(async move {
             let mut peers = HashSet::new();
             loop {
                 // let start = Instant::now();
-                if dht4.bootstrapped().await == false {
+                if !(dht4.bootstrapped().await) {
                     continue;
                 };
                 // println!("search ipv4");
@@ -149,9 +149,9 @@ impl DhtHandler {
                     }
                 }
 
-                if peers.len() != 0 {
+                if !peers.is_empty() {
                     for peer in peers.drain() {
-                        if let Err(_) = snd1.send(peer).await {
+                        if snd1.send(peer).await.is_err() {
                             println!("dht v4 receiver dropped");
                             return;
                         };
@@ -165,7 +165,7 @@ impl DhtHandler {
             loop {
                 let mut peers = HashSet::new();
                 // let start = Instant::now();
-                if dht6.bootstrapped().await == false {
+                if !dht6.bootstrapped().await {
                     continue;
                 };
                 // println!("search ipv6");
@@ -176,9 +176,9 @@ impl DhtHandler {
                     }
                 }
 
-                if peers.len() != 0 {
+                if !peers.is_empty() {
                     for peer in peers.drain() {
-                        if let Err(_) = snd2.send(peer).await {
+                        if snd2.send(peer).await.is_err() {
                             println!("dht v6 receiver dropped");
                             return;
                         };
