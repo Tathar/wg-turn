@@ -30,6 +30,7 @@ use tokio::net;
 use tokio::net::UdpSocket;
 use tokio::task;
 use tokio::task::JoinError;
+use postcard;
 
 #[cfg(debug_assertions)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -194,7 +195,7 @@ impl Msg {
     ) -> Result<Self> {
         let chacha_box = ChaChaBox::new(public_key, private_key);
         match chacha_box.decrypt(&msg.nonce, &msg.ciphertext[..]) {
-            Ok(data) => Ok(serde_bencode::from_bytes(&data[..])?),
+            Ok(data) => Ok(postcard::from_bytes(&data[..])?),
             Err(err) => Err(anyhow!(err)),
         }
     }
@@ -206,7 +207,7 @@ impl Msg {
     ) -> Result<(Nonce, Vec<u8>)> {
         let chacha_box = ChaChaBox::new(public_key, private_key);
         let nonce = ChaChaBox::generate_nonce(&mut OsRng);
-        let message = serde_bencode::to_bytes(self)?;
+        let message = postcard::to_stdvec(self)?;
         match chacha_box.encrypt(&nonce, &message[..]) {
             Ok(ciphertext) => Ok((nonce, ciphertext)),
             Err(err) => Err(anyhow!(err)),
