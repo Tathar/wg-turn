@@ -38,6 +38,8 @@ use wireguard_uapi::linux::err::SetDeviceError;
 use wireguard_uapi::linux::set::{Device, Peer};
 use wireguard_uapi::{err, DeviceInterface, WgSocket};
 
+use postcard;
+
 #[cfg(debug_assertions)]
 use base64::prelude::*;
 
@@ -583,7 +585,7 @@ impl WgPeer {
         let private_key = self.iface.private_key().await?;
 
         let msg = Msg::new(Some(question), None);
-        let snd_question = serde_bencode::to_bytes(&Handcheck::new(
+        let snd_question = postcard::to_stdvec(&Handcheck::new(
             MsgType::Syn,
             msg,
             &public_key,
@@ -685,7 +687,7 @@ impl WgPeer {
                                         println!("Receve Self Syn message");
                                     return Ok(());
                                 } else {
-                                    let handshake : Handcheck = match  serde_bencode::from_bytes(&buf) {
+                                    let handshake : Handcheck = match  postcard::from_bytes(&buf) {
                                         Ok(ok) => ok,
                                         Err(err) => {
                                             println!("serde error in new_check for {} to {} with {}",public_key, endpoint,err);
@@ -707,7 +709,7 @@ impl WgPeer {
                                                     match Handcheck::new(MsgType::SynAck, res, &public_key,&private_key) {
                                                         Ok(handcheck) => {
                                                             
-                                                                match serde_bencode::to_bytes(&handcheck) {
+                                                                match postcard::to_stdvec(&handcheck) {
                                                                     Ok(snd_responce) => {
                                                                         let result = inet_socket.send(&snd_responce).await;
                                                                         match result {
@@ -752,7 +754,7 @@ impl WgPeer {
                                                         let res = Msg::new(None,Some(msg.question));
                                                         match Handcheck::new(MsgType::Ack, res, &public_key, &private_key) {
                                                             Ok(ok) => {
-                                                                match serde_bencode::to_bytes(&ok) {
+                                                                match postcard::to_stdvec(&ok) {
                                                                     Ok(snd_responce) => {
                                                                         let result = inet_socket.send(&snd_responce).await;
                                                                         match result {
@@ -782,7 +784,7 @@ impl WgPeer {
                                                                         }
                                                                     }
                                                                     Err(err) => {
-                                                                        println!("serde_bencode error {}",err);
+                                                                        println!("serde postcard error {}",err);
                                                                         continue
                                                                         // return Err(anyhow!(err));
                                                                     }
